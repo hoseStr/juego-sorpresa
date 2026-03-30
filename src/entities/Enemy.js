@@ -1,46 +1,85 @@
-import { ASSETS, ENEMY_SPEED, ENEMY_PATROL_RANGE } from '../config/constants.js'
+import Phaser from "phaser";
+import { SCORE_ENEMY_KILL } from "../config/constants.js";
 
+/**
+ * Clase base para todos los enemigos.
+ * Goomba y Koopa heredan de aquí y solo sobreescriben lo que cambia.
+ */
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
-  constructor (scene, x, y) {
-    super(scene, x, y, ASSETS.ENEMY)
+  constructor(scene, x, y, textureKey) {
+    super(scene, x, y, textureKey);
 
-    scene.add.existing(this)
-    scene.physics.add.existing(this)
+    scene.add.existing(this);
+    scene.physics.add.existing(this);
 
-    this.setCollideWorldBounds(true)
+    this.setCollideWorldBounds(true);
 
-    // Límites de patrullaje — se calculan desde la posición inicial
-    this._originX = x
-    this._direction = 1     // 1 = derecha, -1 = izquierda
-    this._isDead = false
+    this._isDead = false;
+    this._direction = 1; // 1=derecha, -1=izquierda
+    this._speed = Phaser.Math.Between(40, 80);
   }
 
-  // --- Llamado cada frame desde GameScene.update() ---
-  update () {
-    if (this._isDead) return
+  // ── Loop — GameScene llama esto cada frame ────────────────────────────────
+  update() {
+    if (this._isDead) return;
 
-    this.setVelocityX(ENEMY_SPEED * this._direction)
-    this.anims.play('enemy_walk', true)
-    this.setFlipX(this._direction === -1)
+    // Invierte si choca con pared estática
+    if (this.body.blocked.right) this._direction = -1;
+    if (this.body.blocked.left) this._direction = 1;
 
-    // Voltea cuando llega al límite del rango de patrullaje
-    const distFromOrigin = this.x - this._originX
-    if (distFromOrigin > ENEMY_PATROL_RANGE)  this._direction = -1
-    if (distFromOrigin < -ENEMY_PATROL_RANGE) this._direction =  1
+    this.setVelocityX(this._speed * this._direction);
+    this.setFlipX(this._direction > 0);
+
+    this._updateAnim();
   }
 
-  // --- Muere aplastado por el player ---
-  die (audio) {
-    if (this._isDead) return
-    this._isDead = true
-    audio?.kill()
+  // ── Sobreescribe en cada subclase ─────────────────────────────────────────
 
-    this.setVelocityX(0)
-    this.anims.play('enemy_dead', true)
-
-    // Destruye el objeto después de la animación
-    this.scene.time.delayedCall(400, () => this.destroy())
+  /** Qué pasa cuando el player salta encima */
+  onStomped(player, audio, scoreManager) {
+    throw new Error("onStomped() debe implementarse en la subclase");
   }
 
-  get isDead () { return this._isDead }
+  die(audio, scoreManager) {
+    if (this._isDead) return;
+    this._isDead = true;
+    this.setVelocityX(0);
+    this.body.allowGravity = false;
+    this.anims.stop();
+    audio?.kill();
+    scoreManager?.add(SCORE_ENEMY_KILL);
+
+    // Sale volando hacia arriba y luego cae fuera de pantalla
+    this.scene.tweens.add({
+      targets: this,
+      y: this.y - 40,
+      duration: 200,
+      ease: "Power1",
+      onComplete: () => {
+        this.scene.tweens.add({
+          targets: this,
+          y: this.y + 400,
+          duration: 500,
+          ease: "Power2",
+          onComplete: () => {
+            if (this?.active) this.destroy();
+          },
+        });
+      },
+    });
+  }
+  /** Animación activa — cada subclase define sus keys */
+  _updateAnim() {}
+
+  // ── Helpers compartidos ───────────────────────────────────────────────────
+
+  _playAnim(key) {
+    if (this.scene.anims.exists(key) && this.anims.currentAnim?.key !== key) {
+      this.anims.play(key, true);
+    }
+  }
+
+  get isDead() {
+    return this._isDead;
+  }
 }

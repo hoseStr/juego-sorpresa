@@ -26,8 +26,9 @@ export const SCENES = {
 export const ASSETS = {
   // Sprites
   PLAYER:   'player',
-  ENEMY:    'enemy',
   GOOMBA:   'goomba',
+  KOOPA:    'koopa',
+  SHELL:    'shell',
 
   // Audio
   MUSIC:    'music',

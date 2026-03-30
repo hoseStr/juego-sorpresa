@@ -6,13 +6,14 @@ import {
   SCORE_ENEMY_KILL,
 } from "../config/constants.js";
 import { Player } from "../entities/Player.js";
+import { Goomba } from "../entities/Goomba.js";
+import { Koopa } from "../entities/Koopa.js";
 import { HUD } from "../ui/HUD.js";
 import { AudioManager } from "../managers/AudioManager.js";
 import { scoreManager } from "../managers/ScoreManager.js";
 
 const WORLD_WIDTH = 3072;
 const WORLD_HEIGHT = 576;
-
 const SPAWN_DELAY_MIN = 2000;
 const SPAWN_DELAY_MAX = 4500;
 
@@ -26,7 +27,6 @@ export class GameScene extends Phaser.Scene {
       frameWidth: 18,
       frameHeight: 16,
     });
-
     this.load.spritesheet(
       ASSETS.GOOMBA,
       "assets/entities/overworld/goomba.png",
@@ -35,6 +35,14 @@ export class GameScene extends Phaser.Scene {
         frameHeight: 16,
       },
     );
+    this.load.spritesheet(ASSETS.KOOPA, "assets/entities/koopa.png", {
+      frameWidth: 16,
+      frameHeight: 24,
+    });
+    this.load.spritesheet(ASSETS.SHELL, "assets/entities/shell.png", {
+      frameWidth: 16,
+      frameHeight: 15,
+    });
 
     this.load.image("floorbricks", "assets/scenery/overworld/floorbricks.png");
     this.load.audio(ASSETS.SFX_JUMP, "assets/sound/effects/jump.mp3");
@@ -55,32 +63,67 @@ export class GameScene extends Phaser.Scene {
     this._buildPlatform(700, WORLD_HEIGHT - 192, 5);
     this._buildPlatform(1100, WORLD_HEIGHT - 160, 4);
 
+    // Animaciones
     this._createPlayerAnimations();
-    this._createGoombaAnimations();
+    Goomba.createAnims(this.anims, ASSETS.GOOMBA);
+    Koopa.createAnims(this.anims, ASSETS.KOOPA, ASSETS.SHELL);
 
+    // Player
     this._player = new Player(this, 80, WORLD_HEIGHT - 80);
     this._player.setScale(SCALE);
 
-    this._goombas = this.physics.add.group();
+    // Grupo de enemigos — contiene tanto Goombas como Koopas
+    this._enemies = this.physics.add.group();
 
+    // Colisiones
     this.physics.add.collider(this._player, this._ground);
-    this.physics.add.collider(this._goombas, this._ground);
-    this.physics.add.overlap(
+    this.physics.add.collider(this._enemies, this._ground);
+
+    // Enemigos rebotan entre sí
+    this.physics.add.collider(this._enemies, this._enemies, (a, b) => {
+      // Rebote normal entre enemigos que no son caparazón
+      if (!a._isDead && a.body.touching.right) a._direction = -1;
+      if (!a._isDead && a.body.touching.left) a._direction = 1;
+      if (!b._isDead && b.body.touching.right) b._direction = -1;
+      if (!b._isDead && b.body.touching.left) b._direction = 1;
+
+      // Caparazón en movimiento mata al otro
+      const shell =
+        a instanceof Koopa && a.isShell && a.isShellMoving
+          ? a
+          : b instanceof Koopa && b.isShell && b.isShellMoving
+            ? b
+            : null;
+      const target = shell === a ? b : a;
+
+      if (!shell || !target || target._isDead || target === shell) return;
+      target.die(this._audio, scoreManager);
+    });
+
+    // Caparazón en movimiento mata otros enemigos
+    this.physics.add.overlap(this._enemies, this._enemies, (a, b) => {
+      const shell =
+        a instanceof Koopa && a.isShell && a.isShellMoving
+          ? a
+          : b instanceof Koopa && b.isShell && b.isShellMoving
+            ? b
+            : null;
+      const target = shell === a ? b : a;
+
+      if (!shell || !target || target._isDead) return;
+      target.onStomped(shell, this._audio, scoreManager);
+    });
+
+    // Player ↔ enemigos
+    this.physics.add.collider(
       this._player,
-      this._goombas,
-      this._handlePlayerGoombaOverlap,
+      this._enemies,
+      this._handlePlayerEnemyOverlap,
       null,
       this,
     );
 
-    // Colisión goomba ↔ goomba y goomba ↔ plataformas
-    this.physics.add.collider(this._goombas, this._goombas, (g1, g2) => {
-      if (!g1._isDead && g1.body.touching.right) g1._direction = -1;
-      if (!g1._isDead && g1.body.touching.left) g1._direction = 1;
-      if (!g2._isDead && g2.body.touching.right) g2._direction = -1;
-      if (!g2._isDead && g2.body.touching.left) g2._direction = 1;
-    });
-
+    // Cámara
     this.cameras.main
       .setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
       .startFollow(this._player, true, 0.1, 0.1);
@@ -101,11 +144,11 @@ export class GameScene extends Phaser.Scene {
     this._player.update(this._cursors, this._audio);
     this._hud.update(this._player);
 
-    this._goombas.getChildren().forEach((g) => {
-      if (g.active) this._updateGoomba(g);
+    this._enemies.getChildren().forEach((e) => {
+      if (e.active) e.update();
     });
 
-    if (this._player.y > WORLD_HEIGHT + 100) {
+    if (this._player.y > WORLD_HEIGHT + 100 && !this._player.isDead) {
       this._playerDie();
     }
   }
@@ -115,14 +158,13 @@ export class GameScene extends Phaser.Scene {
   _scheduleNextSpawn() {
     const delay = Phaser.Math.Between(SPAWN_DELAY_MIN, SPAWN_DELAY_MAX);
     this.time.delayedCall(delay, () => {
-      this._spawnGoomba();
+      this._spawnEnemy();
       this._scheduleNextSpawn();
     });
   }
 
-  _spawnGoomba() {
+  _spawnEnemy() {
     const fromLeft = Phaser.Math.Between(0, 1) === 0;
-
     const visibleHalfW = window.innerWidth / this.cameras.main.zoom / 2;
     const camLeft = this._player.x - visibleHalfW;
     const camRight = this._player.x + visibleHalfW;
@@ -130,51 +172,38 @@ export class GameScene extends Phaser.Scene {
     const spawnX = fromLeft
       ? Math.max(0, camLeft - 32)
       : Math.min(WORLD_WIDTH, camRight + 32);
+    const spawnY = WORLD_HEIGHT - 80;
 
-    const goomba = this._goombas.create(
-      spawnX,
-      WORLD_HEIGHT - 80,
-      ASSETS.GOOMBA,
-    );
-    goomba.setScale(SCALE);
-    goomba.setCollideWorldBounds(true);
-    goomba._isDead = false;
-    goomba._direction = fromLeft ? 1 : -1; // 1=derecha, -1=izquierda
-    goomba._speed = Phaser.Math.Between(40, 80);
+    // 60% goomba, 40% koopa
+    const isKoopa = Phaser.Math.Between(0, 9) < 4;
+    const enemy = isKoopa
+      ? new Koopa(this, spawnX, spawnY)
+      : new Goomba(this, spawnX, spawnY);
 
-    goomba.anims.play("goomba_walk", true);
+    enemy.setScale(SCALE);
+    enemy._direction = fromLeft ? 1 : -1;
+
+    this._enemies.add(enemy);
   }
 
-  _updateGoomba(goomba) {
-    if (goomba._isDead) return;
+  // ── Colisión player ↔ enemigo ─────────────────────────────────────────────
 
-    if (goomba.body.blocked.right) goomba._direction = -1;
-    if (goomba.body.blocked.left) goomba._direction = 1;
+  _handlePlayerEnemyOverlap(player, enemy) {
+    if (enemy._isDead) return;
 
-    // Reasigna velocidad según dirección — así siempre se mueve a la velocidad correcta
-    goomba.setVelocityX(goomba._speed * goomba._direction);
-    goomba.setFlipX(goomba._direction > 0);
-  }
+    // Para el caparazón en movimiento, cualquier contacto lo para
+    if (enemy instanceof Koopa && enemy.isShell && enemy.isShellMoving) {
+      enemy.onStomped(player, this._audio, scoreManager); // player = primer argumento
+      player.setVelocityY(-260); // fuerza el rebote aquí directamente por si acaso
+      return;
+    }
 
-  _handlePlayerGoombaOverlap(player, goomba) {
-    if (goomba._isDead) return;
-
-    const playerFalling = player.body.velocity.y > 0;
-    const playerAbove = player.body.bottom < goomba.body.center.y + 6;
+    // Para el resto: diferencia entre saltar encima o chocar de lado
+    const playerFalling = player.body.velocity.y >= 0;
+    const playerAbove = player.body.bottom <= enemy.body.top + 12;
 
     if (playerFalling && playerAbove) {
-      goomba._isDead = true;
-      goomba.setVelocityX(0);
-      goomba.body.allowGravity = false;
-      goomba.anims.play("goomba_dead", true);
-      this._audio.kill();
-
-      scoreManager.add(SCORE_ENEMY_KILL);
-      player.setVelocityY(-260);
-
-      this.time.delayedCall(400, () => {
-        if (goomba?.active) goomba.destroy();
-      });
+      enemy.onStomped(player, this._audio, scoreManager);
     } else {
       if (player.hurt(this._audio)) {
         if (player.isDead) this._playerDie();
@@ -182,28 +211,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ── Animaciones ───────────────────────────────────────────────────────────
-
-  _createGoombaAnimations() {
-    const anims = this.anims;
-    if (anims.exists("goomba_walk")) return;
-
-    // goomba.png: 48x16 → 3 frames de 16x16
-    // 0=walk1  1=walk2  2=dead
-    anims.create({
-      key: "goomba_walk",
-      frames: anims.generateFrameNumbers(ASSETS.GOOMBA, { start: 0, end: 1 }),
-      frameRate: 6,
-      repeat: -1,
-    });
-
-    anims.create({
-      key: "goomba_dead",
-      frames: anims.generateFrameNumbers(ASSETS.GOOMBA, { start: 2, end: 2 }),
-      frameRate: 1,
-      repeat: 0,
-    });
-  }
+  // ── Player animations ─────────────────────────────────────────────────────
 
   _createPlayerAnimations() {
     const anims = this.anims;
@@ -259,6 +267,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   _playerDie() {
-    // Por ahora no hace nada — la animación de muerte en Player.js lo maneja todo
+    // La animación de muerte en Player.js maneja todo
   }
 }
