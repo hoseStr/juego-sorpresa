@@ -4,7 +4,7 @@ export const SCALE    = 2          // factor de escala global (16px → 32px en 
 
 // --- Player ---
 export const PLAYER_SPEED        = 180
-export const PLAYER_JUMP_FORCE   = -420
+export const PLAYER_JUMP_FORCE   = -340
 export const PLAYER_LIVES        = 3
 
 // --- Enemigo ---
