@@ -73,6 +73,14 @@ export class GameScene extends Phaser.Scene {
       this,
     );
 
+    // Colisión goomba ↔ goomba y goomba ↔ plataformas
+    this.physics.add.collider(this._goombas, this._goombas, (g1, g2) => {
+      if (!g1._isDead && g1.body.touching.right) g1._direction = -1;
+      if (!g1._isDead && g1.body.touching.left) g1._direction = 1;
+      if (!g2._isDead && g2.body.touching.right) g2._direction = -1;
+      if (!g2._isDead && g2.body.touching.left) g2._direction = 1;
+    });
+
     this.cameras.main
       .setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
       .startFollow(this._player, true, 0.1, 0.1);
@@ -130,17 +138,22 @@ export class GameScene extends Phaser.Scene {
     );
     goomba.setScale(SCALE);
     goomba.setCollideWorldBounds(true);
-    goomba.setBounceX(1);
     goomba._isDead = false;
+    goomba._direction = fromLeft ? 1 : -1; // 1=derecha, -1=izquierda
+    goomba._speed = Phaser.Math.Between(40, 80);
 
-    const speed = Phaser.Math.Between(40, 80);
-    goomba.setVelocityX(fromLeft ? speed : -speed);
     goomba.anims.play("goomba_walk", true);
   }
 
   _updateGoomba(goomba) {
     if (goomba._isDead) return;
-    goomba.setFlipX(goomba.body.velocity.x > 0);
+
+    if (goomba.body.blocked.right) goomba._direction = -1;
+    if (goomba.body.blocked.left) goomba._direction = 1;
+
+    // Reasigna velocidad según dirección — así siempre se mueve a la velocidad correcta
+    goomba.setVelocityX(goomba._speed * goomba._direction);
+    goomba.setFlipX(goomba._direction > 0);
   }
 
   _handlePlayerGoombaOverlap(player, goomba) {
