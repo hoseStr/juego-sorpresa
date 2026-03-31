@@ -45,6 +45,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.load.image("floorbricks", "assets/scenery/overworld/floorbricks.png");
+    this.load.image("tube_medium", "assets/scenery/vertical-medium-tube.png");
     this.load.audio(ASSETS.SFX_JUMP, "assets/sound/effects/jump.mp3");
     this.load.audio(ASSETS.SFX_KILL, "assets/sound/effects/goomba-stomp.wav");
   }
@@ -62,6 +63,7 @@ export class GameScene extends Phaser.Scene {
     this._buildPlatform(400, WORLD_HEIGHT - 128, 3);
     this._buildPlatform(700, WORLD_HEIGHT - 192, 5);
     this._buildPlatform(1100, WORLD_HEIGHT - 160, 4);
+    this._buildTube(1600);
 
     // Animaciones
     this._createPlayerAnimations();
@@ -81,13 +83,6 @@ export class GameScene extends Phaser.Scene {
 
     // Enemigos rebotan entre sí
     this.physics.add.collider(this._enemies, this._enemies, (a, b) => {
-      // Rebote normal entre enemigos que no son caparazón
-      if (!a._isDead && a.body.touching.right) a._direction = -1;
-      if (!a._isDead && a.body.touching.left) a._direction = 1;
-      if (!b._isDead && b.body.touching.right) b._direction = -1;
-      if (!b._isDead && b.body.touching.left) b._direction = 1;
-
-      // Caparazón en movimiento mata al otro
       const shell =
         a instanceof Koopa && a.isShell && a.isShellMoving
           ? a
@@ -96,8 +91,17 @@ export class GameScene extends Phaser.Scene {
             : null;
       const target = shell === a ? b : a;
 
-      if (!shell || !target || target._isDead || target === shell) return;
-      target.die(this._audio, scoreManager);
+      if (shell) {
+        // El caparazón no cambia dirección — arrolla al objetivo
+        if (!target._isDead) target.die(this._audio, scoreManager);
+        return;
+      }
+
+      // Rebote normal entre enemigos sin caparazón
+      if (!a._isDead && a.body.touching.right) a._direction = -1;
+      if (!a._isDead && a.body.touching.left) a._direction = 1;
+      if (!b._isDead && b.body.touching.right) b._direction = -1;
+      if (!b._isDead && b.body.touching.left) b._direction = 1;
     });
 
     // Caparazón en movimiento mata otros enemigos
@@ -264,6 +268,15 @@ export class GameScene extends Phaser.Scene {
         .setOrigin(0.5)
         .refreshBody();
     }
+  }
+
+  _buildTube(x) {
+    const tube = this._ground
+      .create(x, WORLD_HEIGHT - 48, "tube_medium")
+      .setOrigin(0.5, 0.815)
+      .refreshBody();
+    tube.setScale(SCALE);
+    tube.refreshBody();
   }
 
   _playerDie() {
