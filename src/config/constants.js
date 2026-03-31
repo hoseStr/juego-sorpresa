@@ -19,6 +19,7 @@ export const SCORE_COIN          = 50
 export const SCENES = {
   MENU:      'MenuScene',
   GAME:      'GameScene',
+  MIRROR:   'MirrorScene',
   GAME_OVER: 'GameOverScene',
 }
 

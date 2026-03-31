@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { MenuScene } from "../scenes/MenuScene.js";
 import { GameScene } from "../scenes/GameScene.js";
+import { MirrorScene } from "../scenes/MirrorScene.js";
 import { GameOverScene } from "../scenes/GameOverScene.js";
 
 export const gameConfig = {
@@ -20,5 +21,5 @@ export const gameConfig = {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [MenuScene, GameScene, GameOverScene],
+  scene: [MenuScene, GameScene, MirrorScene, GameOverScene],
 };
